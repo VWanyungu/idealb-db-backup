@@ -1,4 +1,4 @@
-# dbbackup — pg_dump backup guide
+# dbbackup with pg_dump
 
 This covers running `backup.js`: a minimal PostgreSQL backup script with
 **no permanent local footprint**. Each run:
