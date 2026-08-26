@@ -1,38 +1,38 @@
 # dbbackup
 
-This README covers **restoring a database from an encrypted dump** produced by either script.
+This README covers **restoring a database from an encrypted dump** produced by `backup.js`.
 
 ## What you'll need before restoring
 
 - The encrypted dump file downloaded from Supabase Storage (`<db>_<timestamp>.dump.gpg` and/or `<db>_<timestamp>.sql.gpg`)
 - The matching `.sha256` checksum file, also in Supabase Storage
-- Either:
-  - your GPG **private key** (if the backup used `GPG_RECIPIENT` / asymmetric encryption), or
-  - the **passphrase** used at backup time (if it used `GPG_PASSPHRASE_FILE` / symmetric encryption)
+- The **GPG passphrase file** — a local copy of the same file the backup used as `GPG_PASSPHRASE_FILE` (backups use GPG symmetric encryption, so decryption needs the identical passphrase, not just its value from memory)
+- The target Postgres connection details (`PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, target database name) — typically the same values as the backup's `.env`, unless you're restoring into a different server/database
 - `gpg`, `pg_restore` (for `.dump` files) or `psql` (for `.sql` files) installed locally
 - Network access to the target Postgres server you're restoring into
 
 ## Step 1 — Download the files from Supabase Storage
 
+Each backup run uploads both dump formats, each with its own encrypted file and checksum.
+Download whichever format you intend to restore from — you don't need both, but the
+commands below show both for reference:
+
 ```bash
+# Custom format
 supabase storage download <bucket>/<db>_<timestamp>.dump.gpg
-supabase storage download <bucket>/<db>_<timestamp>.dump.gpg.sha256
+supabase storage download <bucket>/<db>_<timestamp>.dump.sha256
+
+# Plain SQL format
+supabase storage download <bucket>/<db>_<timestamp>.sql.gpg
+supabase storage download <bucket>/<db>_<timestamp>.sql.sha256
 ```
 
-Download both the `.dump.gpg` (or `.sql.gpg`) file and its `.sha256` sibling.
+Always download a `.gpg` file together with its matching `.sha256` sibling — they must come from the same backup run.
 
 ## Step 2 — Decrypt
 
-**If the backup used asymmetric encryption (`GPG_RECIPIENT`)** — you need the corresponding private key imported into your local GPG keyring:
-
-```bash
-gpg --import your-private-key.asc
-gpg --batch --yes -o <db>_<timestamp>.dump -d <db>_<timestamp>.dump.gpg
-```
-
-GPG will prompt for your private key's passphrase if it has one.
-
-**If the backup used symmetric encryption (`GPG_PASSPHRASE_FILE`)** — you need the same passphrase used at backup time:
+You need the same GPG passphrase file used at backup time (`GPG_PASSPHRASE_FILE`):
+Ensure the output file name matched the pattern for step 3 (Checksum verification) to work
 
 ```bash
 gpg --batch --yes --passphrase-file /path/to/passphrase.txt \
@@ -59,13 +59,24 @@ Expected output: `<db>_<timestamp>.dump: OK`. If this fails, **do not proceed** 
 
 You have two dump formats to choose from, depending on which one you downloaded:
 
+First, connect to the target Postgres server and create the target database:
+
+```bash
+PGPASSWORD=<password> psql -h <host> -p <port> -U <user> -d postgres
+```
+
+Inside the `psql` prompt, create the database with DDL, then exit:
+
+```sql
+CREATE DATABASE <target_db>;
+\q
+```
+
+With the database created, run the restore from your regular terminal (not inside `psql`):
+
 ### Custom format (`.dump`) — supports selective/parallel restore
 
 ```bash
-# Create the target database first if it doesn't exist
-createdb -h <host> -U <user> <target_db>
-
-# Restore
 PGPASSWORD=<password> pg_restore \
   -h <host> -p <port> -U <user> -d <target_db> \
   --no-owner --no-privileges \
@@ -80,8 +91,6 @@ PGPASSWORD=<password> pg_restore \
 ### Plain SQL format (`.sql`) — human-readable, restore via psql
 
 ```bash
-createdb -h <host> -U <user> <target_db>
-
 PGPASSWORD=<password> psql \
   -h <host> -p <port> -U <user> -d <target_db> \
   -f <db>_<timestamp>.sql
@@ -94,10 +103,6 @@ Before treating the restore as complete:
 - Confirm row counts on a few key tables against expectations.
 - Confirm the most recent transaction/record timestamp in the restored data lines up with the backup's timestamp — this tells you exactly how much data (if any) is missing relative to the failure point.
 
-## Step 6 — Clean up
+```
 
-Once restored and verified, securely delete the local decrypted plaintext dump
-
-```bash
-rm -u <db>_<timestamp>.dump
 ```
