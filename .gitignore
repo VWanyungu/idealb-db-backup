@@ -1,0 +1,5 @@
+.env
+.claude
+dcrypt
+node_modules
+package-lock.json

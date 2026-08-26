@@ -1,0 +1,15 @@
+{
+  "name": "idealdb-db-backup",
+  "version": "1.0.0",
+  "description": "backup script for db",
+  "license": "ISC",
+  "author": "wanyungu",
+  "type": "module",
+  "main": "backup.js",
+  "scripts": {
+    "backup": "node backup.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  }
+}
